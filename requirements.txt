@@ -1,0 +1,5 @@
+langgraph
+langchain
+dotenv
+requests
+typing-extensions
