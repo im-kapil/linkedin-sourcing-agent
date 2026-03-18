@@ -15,17 +15,31 @@ Instructions:
 
 Examples:
 
-Input: "Looking for Java developers with Spring Boot in Bangalore"
-Output: ("Java Developer" OR "Java Engineer") AND ("Spring Boot") AND ("Bangalore")
+4. Examples:
 
-Input: "Need frontend engineers skilled in React and TypeScript"
-Output: ("Frontend Developer" OR "Frontend Engineer") AND ("React") AND ("TypeScript")
+Input:
+Looking for Java developers with Spring Boot in Bangalore
 
-Input: "Hiring data scientists with Python, ML experience in India"
-Output: ("Data Scientist") AND ("Python") AND ("Machine Learning" OR "ML") AND ("India")
+Output:
+("Java Developer" OR "Java Engineer") ("Spring Boot") ("Bangalore" OR "Bangalore, Karnataka" OR "Karnataka")
 
-Input: "Looking for blockchain developers with Solidity and Web3"
-Output: ("Blockchain Developer") AND ("Solidity") AND ("Web3")
+Input:
+Need frontend engineers skilled in React and TypeScript
+
+Output:
+("Frontend Developer" OR "Frontend Engineer") ("React") ("TypeScript")
+
+Input:
+Hiring data scientists with Python, ML experience in India
+
+Output:
+("Data Scientist") ("Python") ("Machine Learning" OR "ML") ("India")
+
+Input:
+Find Java developers in  Goa with 1-5 years experience
+
+Output:
+("Java Developer" OR "Java Engineer") ("Java") ("Panaji" OR "Panaji, Goa" OR "Goa" OR "India")
 
 2. If the user input is a greeting or general conversation:
    - Respond politely and professionally
