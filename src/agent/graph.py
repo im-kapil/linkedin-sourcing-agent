@@ -65,7 +65,7 @@ import os
 import requests
 
 from prompt_templates.linkedin_query_prompt import LINKEDIN_QUERY_PROMPT
-# from prompt_templates.user_intent_prompt import INTENT_CLASSIFIER_PROMPT
+from prompt_templates.user_intent_prompt import INTENT_CLASSIFIER_PROMPT
 
 class Context(TypedDict):
     """
@@ -134,10 +134,9 @@ class State(TypedDict):
         https://langchain-ai.github.io/langgraph/concepts/low_level/#state
     """
     user_prompt: str
-    linkedin_query: str
-    linkedin_results: List[str]    
-    # google_query: str
-    # google_results: list
+    user_prompt_intent: str
+    query_response: str
+    linkedin_results: List[str]
 
 def build_search_query_linkedin(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
     """
@@ -208,10 +207,11 @@ def build_search_query_linkedin(state: State, runtime: Runtime[Context]) -> Dict
         if line:
             chunk = json.loads(line)
             full_response += chunk.get("response", "")
+            print("full_response INSIDE::::::::::::::::::::::;", full_response)
     
-    print("Response From LLM in[build_search_query_linkedin]::::::", full_response)
+    print("FULL RESPONSE OUTSIDE LOOP IS is:::::::::::::::::::::::::", full_response)
     
-    state['linkedin_query'] = full_response
+    state['query_response'] = full_response
     
     return state
 
@@ -274,17 +274,16 @@ def search_linkedin_profiles(state: State, runtime: Runtime[Context]) -> Dict[st
         - Output is lightweight (no enrichment or structured parsing)
     """
     base_url =  os.getenv("SERPER_BASE_URL")
-    x_ray_prefix = os.getenv("XRAY_PREFIX")
     
     endpoint = base_url+"/search"
     
-    searchQuery = f'{x_ray_prefix} {state.get("linkedin_query")}'
+    searchQuery = f'site:linkedin.com/in {state.get("query_response")}'
     
     print("searchQuery::::::::::::", searchQuery)
     
     payload = {
         "q": searchQuery,
-        "num": int(os.getenv("MAX_SEARCH_RESULTS")) | 10
+        "num": 10
     }
 
     headers = {
@@ -295,7 +294,6 @@ def search_linkedin_profiles(state: State, runtime: Runtime[Context]) -> Dict[st
     response = requests.post(endpoint, json=payload, headers=headers)
     data = response.json()
     
-    print("Data:::::::::::::::::::::::::", data)
     results = []
 
     for item in data.get("organic", []):
@@ -305,28 +303,112 @@ def search_linkedin_profiles(state: State, runtime: Runtime[Context]) -> Dict[st
             results.append({
                 "title": item.get("title"),
                 "snippet": item.get("snippet"),
-                "linkedin_url": link,
-                "position": item.get('position')
+                "url": link
             })
-    print("results:::::::::::::::::::::", results)
     if(len(results)):
-        state['linkedin_results'] = results
+        state['query_response'] = results
         
     return state
+
+def classify_user_prompt_intent(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
+    LLM_BASE_URL = os.getenv("LLM_BASE_URL")    
+    prompt = INTENT_CLASSIFIER_PROMPT.format(
+        user_input=state.get('user_prompt')
+    )
+    
+    data = {
+    "model": "qwen2.5",
+    "prompt": prompt
+    }
+        
+    response = requests.post(
+        LLM_BASE_URL+"/api/generate", 
+        json=data, 
+        stream=True
+    )
+        
+    full_response = ""
+    
+    for line in response.iter_lines():
+        if line:
+            chunk = json.loads(line)
+            full_response += chunk.get("response", "")
+    
+    print("Response From LLM in[classify_user_prompt_intent]::::::", full_response)
+    
+    state['user_prompt_intent'] = full_response
+    
+    return state
+
+def handle_irrelevant(state: State, runtime: Context[Context]) :  
+    state['query_response'] = "I am designed specifically to assist with recruitment and LinkedIn candidate sourcing. Please provide hiring-related requirements."
+    
+    return state
+
+
+def handle_greeting(state: State, runtime: Context[Context]) :
+    state['query_response'] = "Hi, I am a LinkedIn sourcing assistant. How can I help you with hiring today?"
+    
+    return state
+    
+def handle_general_query(state: State):
+    state['query_response'] = "I can help you source candidates. Please provide role, skills, and location." 
+    
+    return state
+
+def handle_general_recruitment_query(state: State):
+    state['query_response'] = "I can help you source candidates. Please provide role, skills, and location." 
+    
+    return state
+
+def handle_out_of_scope(state: State):
+    state['query_response'] = "I am designed for recruitment and candidate sourcing. Please share hiring requirements."
+    
+    return state
+    
+def route_intent(state: State, runtime: Context[Context]):
+    intent = state.get("user_prompt_intent")
+
+    if intent == "search_candidates":
+        return "build_search_query_linkedin"
+    elif intent == "greeting":
+        return "handle_greeting"
+    elif intent == "general_recruitment_query":
+        return "handle_general_recruitment_query"
+    else:
+        return "handle_out_of_scope"
 
 # Define Graph
 graph = (
     StateGraph(State, context_schema=Context)
     # Nodes
+    .add_node("classify_user_prompt_intent", classify_user_prompt_intent)
     .add_node("build_search_query_linkedin", build_search_query_linkedin)
+    .add_node("handle_greeting", handle_greeting)
+    .add_node("handle_general_query", handle_general_query)
+    .add_node("handle_out_of_scope", handle_out_of_scope)
+    .add_node("handle_general_recruitment_query", handle_general_recruitment_query)
     .add_node("search_linkedin_profiles", search_linkedin_profiles)
     
     #Flow
-    .add_edge(START, "build_search_query_linkedin")
+    .add_edge(START, "classify_user_prompt_intent")
+    .add_conditional_edges("classify_user_prompt_intent", route_intent, 
+                           {
+                               "build_search_query_linkedin": "build_search_query_linkedin",
+                                "handle_greeting": "handle_greeting",
+                                "handle_general_query": "handle_general_query",
+                                "handle_general_recruitment_query": "handle_general_recruitment_query",
+                                "handle_out_of_scope": "handle_out_of_scope",
+                            })
     .add_edge("build_search_query_linkedin", "search_linkedin_profiles")
+    # End all paths
     .add_edge("search_linkedin_profiles", END)
-    
+    .add_edge("build_search_query_linkedin", END)
+    .add_edge("handle_greeting", END)
+    .add_edge("handle_general_query", END)
+    .add_edge("handle_out_of_scope", END)
+    .add_edge("handle_general_recruitment_query", END)
+        
     .compile(name="Talent Sourcing Graph")
 )
-
 
